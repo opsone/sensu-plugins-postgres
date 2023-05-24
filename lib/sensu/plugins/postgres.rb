@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "postgres/version"
+require_relative 'postgres/version'
 
 module Sensu
   module Plugins
