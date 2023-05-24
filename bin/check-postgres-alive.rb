@@ -34,7 +34,8 @@ class CheckPostgres < Sensu::Plugin::Check::CLI
          description: 'Connection timeout (seconds)',
          short: '-T TIMEOUT',
          long: '--timeout TIMEOUT',
-         default: nil
+         default: 5,
+         proc: proc(&:to_i)
 
   def run
     con = PG.connect(host: config[:hostname],

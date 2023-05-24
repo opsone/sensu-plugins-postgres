@@ -55,7 +55,8 @@ class CheckPostgresConnections < Sensu::Plugin::Check::CLI
          description: 'Connection timeout (seconds)',
          short: '-T TIMEOUT',
          long: '--timeout TIMEOUT',
-         default: nil
+         default: 5,
+         proc: proc(&:to_i)
 
   def run
     con = PG.connect(host: config[:hostname],
@@ -67,9 +68,9 @@ class CheckPostgresConnections < Sensu::Plugin::Check::CLI
 
     max_conns = con.exec('SHOW max_connections').getvalue(0, 0).to_i
     superuser_conns = con.exec('SHOW superuser_reserved_connections').getvalue(0, 0).to_i
-    available_conns = max_conns - superuser_conns
     current_conns = con.exec('SELECT count(*) from pg_stat_activity').getvalue(0, 0).to_i
 
+    available_conns = max_conns - superuser_conns
     percent = (current_conns / max_conns.to_f * 100).to_i
 
     if config[:use_percentage]
@@ -93,5 +94,7 @@ class CheckPostgresConnections < Sensu::Plugin::Check::CLI
     end
   rescue PG::Error => e
     unknown "Unable to query PostgreSQL: #{e.message}"
+  ensure
+    con&.close
   end
 end
