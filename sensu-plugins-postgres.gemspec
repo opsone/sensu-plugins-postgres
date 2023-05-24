@@ -9,7 +9,6 @@ Gem::Specification.new do |spec|
   spec.email = ['kevyn.lebouille@opsone.net']
 
   spec.summary = 'Sensu plugins for PostgreSQL'
-  # spec.description = "TODO: Write a longer description or delete this line."
   spec.homepage = 'https://github.com/opsone/sensu-plugins-postgres'
   spec.required_ruby_version = '>= 3.2.0'
 
