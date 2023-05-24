@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative 'lib/sensu/plugins/postgres/version'
+require_relative 'lib/sensu/plugins/postgres'
 
 Gem::Specification.new do |spec|
   spec.name = 'sensu-plugins-postgres'

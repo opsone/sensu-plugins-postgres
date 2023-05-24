@@ -1,6 +1,18 @@
 AllCops:
   TargetRubyVersion: 3.2
 
+Metrics/AbcSize:
+  Enabled: false
+
+Metrics/MethodLength:
+  Enabled: false
+
+Metrics/PerceivedComplexity:
+  Enabled: false
+
+Style/Documentation:
+  Enabled: false
+
 Style/StringLiterals:
   Enabled: true
   EnforcedStyle: single_quotes
