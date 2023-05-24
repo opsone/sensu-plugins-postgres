@@ -1,10 +1,14 @@
 AllCops:
+  SuggestExtensions: false
   TargetRubyVersion: 3.2
 
 Metrics/AbcSize:
   Enabled: false
 
 Metrics/MethodLength:
+  Enabled: false
+
+Metrics/CyclomaticComplexity:
   Enabled: false
 
 Metrics/PerceivedComplexity:
