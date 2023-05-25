@@ -15,6 +15,7 @@ task :build_assets do
     `docker run -v "$PWD/assets:/tmp/assets" ruby-plugin-#{platform} cp /assets/sensu-plugins-postgres.tar.gz /tmp/assets/sensu-plugins-postgres_#{version}_#{platform}_linux_amd64.tar.gz`
     `docker rm $(docker ps -a -q --filter ancestor=ruby-plugin-#{platform})`
     `docker rmi ruby-plugin-#{platform}`
-    `shasum -a 512 assets/*.tar.gz > assets/sensu-plugins-postgres_#{version}_sha512-checksums.txt`
   end
+
+  `cd assets && shasum -a 512 ./*.tar.gz > sensu-plugins-postgres_#{version}_sha512-checksums.txt`
 end
