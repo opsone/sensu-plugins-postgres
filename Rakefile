@@ -7,9 +7,14 @@ RuboCop::RakeTask.new
 
 task default: :rubocop
 
-task :build_asset do
-  `docker build -t ruby-plugin-debian -f Dockerfile.debian .`
-  `docker run -v "$PWD/assets:/tmp/assets" ruby-plugin-debian cp /assets/sensu-plugins-postgres.tar.gz /tmp/assets/sensu-plugins-postgres_#{Sensu::Plugins::Postgres::VERSION}_debian_linux.tar.gz`
-  `docker rm $(docker ps -a -q --filter ancestor=ruby-plugin-debian)`
-  `docker rmi ruby-plugin-debian`
+task :build_assets do
+  version = Sensu::Plugins::Postgres::VERSION
+
+  %w[debian11 debian10 debian].each do |platform|
+    `docker build -t ruby-plugin-#{platform} -f Dockerfile.#{platform} .`
+    `docker run -v "$PWD/assets:/tmp/assets" ruby-plugin-#{platform} cp /assets/sensu-plugins-postgres.tar.gz /tmp/assets/sensu-plugins-postgres_#{version}_#{platform}_linux_amd64.tar.gz`
+    `docker rm $(docker ps -a -q --filter ancestor=ruby-plugin-#{platform})`
+    `docker rmi ruby-plugin-#{platform}`
+    `shasum -a 512 assets/*.tar.gz > assets/sensu-plugins-postgres_#{version}_sha512-checksums.txt`
+  end
 end

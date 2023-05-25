@@ -1,4 +1,4 @@
-FROM sensu-ruby32-runtime-3.2.2-debian:0.1.2
+FROM sensu-ruby32-runtime-3.2.2-debian10:0.1.2
 ARG ASSET_GEM=sensu-plugins-postgres
 ARG GIT_REF=fa8cf520dc11f21d9a5d4a98aa1fa66b7d3082ea
 ARG GIT_REPO=https://github.com/opsone/sensu-plugins-postgres.git
