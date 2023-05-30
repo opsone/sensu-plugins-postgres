@@ -10,7 +10,7 @@ task default: :rubocop
 task :build_assets do
   version = Sensu::Plugins::Postgres::VERSION
 
-  %w[debian11 debian10 debian].each do |platform|
+  %w[debian11 debian10].each do |platform|
     `docker build -t ruby-plugin-#{platform} -f Dockerfile.#{platform} .`
     `docker run -v "$PWD/assets:/tmp/assets" ruby-plugin-#{platform} cp /assets/sensu-plugins-postgres.tar.gz /tmp/assets/sensu-plugins-postgres_#{version}_#{platform}_linux_amd64.tar.gz`
     `docker rm $(docker ps -a -q --filter ancestor=ruby-plugin-#{platform})`
