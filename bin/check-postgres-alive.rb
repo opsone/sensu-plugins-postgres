@@ -47,7 +47,7 @@ class CheckPostgres < Sensu::Plugin::Check::CLI
     res = con.exec('select version();')
     info = res.first
 
-    ok "Server version: #{info}"
+    ok "Server version: #{info['version']}"
   rescue PG::Error => e
     critical "Error message: #{e.error.split("\n").first}"
   ensure

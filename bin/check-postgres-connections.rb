@@ -16,7 +16,7 @@ class CheckPostgresConnections < Sensu::Plugin::Check::CLI
          long: '--password PASS'
 
   option :hostname,
-         description: 'Hostname to login to',
+         description: 'Postgres Hostname',
          short: '-h HOST',
          long: '--hostname HOST'
 
