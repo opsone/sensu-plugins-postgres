@@ -1,6 +1,6 @@
 FROM sensu-ruby32-runtime-3.2.2-debian10:0.1.2
 ARG ASSET_GEM=sensu-plugins-postgres
-ARG GIT_REF=c763a68b5b7de4f2dcaa7520684f47f837e36252
+ARG GIT_REF=398db3263e58a8c99fe1f7a7355dc3aa94a538fd
 ARG GIT_REPO=https://github.com/opsone/sensu-plugins-postgres.git
 ARG GREP_EXCLUDE='(ld.so|ld-linux-x86-64.so|libBrokenLocale.so|libSegFault.so|libanl.so|libc.so|libdl.so|libm.so|libmvec.so|libnss_compat.so|libnss_dns.so|libnss_files.so|libpthread.so|libresolv.so|librt.so|libthread_db.so|libutil.so|vdso.so)'
 
