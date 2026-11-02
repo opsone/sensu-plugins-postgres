@@ -1,2 +1,11 @@
-/assets/
-/Gemfile.lock
+# Build outputs (make build / linux / dist)
+/dist/
+/check-postgres-*
+/integration/check-postgres-*
+
+# Manual `go build` from a cmd/ directory
+/cmd/*/check-postgres-*
+
+# go test -c, coverage
+*.test
+*.out
