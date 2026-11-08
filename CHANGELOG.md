@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-11-08
 
 ### Added
 - `check-postgres-amcheck`: checks a database for corruption with `sudo -n -u postgres pg_amcheck --heapallindexed`; CRITICAL on corruption, UNKNOWN when the check cannot run.
