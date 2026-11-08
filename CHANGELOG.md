@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.1] - 2026-11-08
 
 ### Fixed
 - README: check definitions no longer use `| default ""`. Sensu rejects an empty environment variable, and the agent silently drops the check on a host missing the annotation. Explicit defaults instead (`sensu`, `200`, `250`, `false`); `postgres_password` is required, or its line removed for `peer` / `~/.pgpass` authentication.
