@@ -1,4 +1,4 @@
-BINARIES := check-postgres-alive check-postgres-connections
+BINARIES := check-postgres-alive check-postgres-amcheck check-postgres-connections
 PROJECT  := sensu-plugins-postgres
 VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always 2>/dev/null || echo dev))
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)

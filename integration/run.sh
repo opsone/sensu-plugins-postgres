@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Runs the checks against real PostgreSQL servers in Docker: 18 (with reserved_connections) and 15 (without).
+# Runs the checks against real PostgreSQL servers in Docker: 18 (with reserved_connections) and 15 (without),
+# then check-postgres-amcheck on a PostgreSQL 18 server, run by the sensu user through sudo.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 id=$$
 image=check-postgres-integration
+amcheck_image=check-postgres-amcheck-integration
 network=check-postgres-$id
 socket=check-postgres-socket-$id
 server=check-postgres-server-$id
+amcheck=check-postgres-amcheck-$id
 runner=check-postgres-runner-$id
 pg_images=(postgres:18.1-trixie postgres:15.15-trixie)
 
 docker build -q -t "$image" . >/dev/null
+docker build -q -t "$amcheck_image" -f amcheck.Dockerfile . >/dev/null
 docker network create "$network" >/dev/null
 docker volume create "$socket" >/dev/null
 cleanup() {
-  docker rm -f "$runner" "$server" >/dev/null 2>&1 || true
+  docker rm -f "$runner" "$server" "$amcheck" >/dev/null 2>&1 || true
   docker volume rm "$socket" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
 }
@@ -25,12 +29,17 @@ trap cleanup EXIT
 docker run -d --name "$runner" --network "$network" -v "$socket:/var/run/postgresql" "$image" >/dev/null
 
 failures=0
+# Container and system user running the checks.
+target=$runner runas=nobody
 expect() {
   local want=$1 desc=$2 match=$3; shift 3
   local out rc=0
   # Run as an unprivileged user, like sensu-agent does.
-  out=$(docker exec -e HOME=/tmp ${envs[@]+"${envs[@]}"} "$runner" runuser -u nobody -- "$@" 2>&1) || rc=$?
-  out=$(tail -1 <<<"$out")
+  out=$(docker exec -e HOME=/tmp ${envs[@]+"${envs[@]}"} "$target" runuser -u "$runas" -- "$@" 2>&1) || rc=$?
+  # Last line, or the whole output when only it holds the match (multi-line check outputs).
+  local last; last=$(tail -1 <<<"$out")
+  [[ $last != *"$match"* && $out == *"$match"* ]] || out=$last
+  out=${out//$'\n'/ | }
   if [[ $rc -eq $want && $out == *"$match"* ]]; then
     echo "ok   [$rc] $desc -> $out"
   else
@@ -106,5 +115,49 @@ for pg_image in "${pg_images[@]}"; do
   expect 1 "connections percentage from environment variables" "at 64%, 11 out of 17" check-postgres-connections "${tcp[@]}"
   envs=()
 done
+
+echo "--- check-postgres-amcheck"
+# Without data checksums (on by default since PostgreSQL 18), so that a tuple changed on disk stays a valid page.
+docker run -d --name "$amcheck" -e POSTGRES_PASSWORD=admin-secret -e POSTGRES_INITDB_ARGS=--no-data-checksums "$amcheck_image" >/dev/null
+for _ in $(seq 60); do docker exec "$amcheck" pg_isready -q -h 127.0.0.1 && break; sleep 1; done
+target=$amcheck runas=sensu
+apsql() { docker exec "$amcheck" psql -qtAX -U postgres -d "${2:-app}" -c "$1"; }
+apsql "CREATE DATABASE app" postgres
+apsql "CREATE TABLE t (id int PRIMARY KEY, v text); INSERT INTO t SELECT i, md5(i::text) FROM generate_series(1, 10000) i"
+cmd=/usr/lib/postgresql/18/bin/pg_amcheck
+
+expect 3 "amcheck without database" "--database is required" check-postgres-amcheck -C "$cmd"
+expect 3 "amcheck extension missing" "amcheck is not installed" check-postgres-amcheck -C "$cmd" -d app
+apsql "CREATE EXTENSION amcheck"
+expect 0 "amcheck ok" "no corruption found in database app" check-postgres-amcheck -C "$cmd" -d app
+expect 0 "amcheck without heapallindexed" "no corruption found" check-postgres-amcheck -C "$cmd" -d app --heapallindexed=false
+envs=(-e CHECK_POSTGRES_AMCHECK_DATABASE=app -e CHECK_POSTGRES_AMCHECK_COMMAND="$cmd")
+expect 0 "amcheck from environment variables" "no corruption found" check-postgres-amcheck
+envs=()
+expect 3 "amcheck unknown database" "no connectable databases" check-postgres-amcheck -C "$cmd" -d nope
+expect 3 "amcheck sudo refused" "a password is required" check-postgres-amcheck -C "$cmd" -d app -s root
+expect 3 "amcheck without sudo (peer authentication)" "pg_amcheck failed" check-postgres-amcheck -C "$cmd" -d app -s ""
+
+# Changes the id of the first heap tuple on disk (to 99999, little-endian int4 after the tuple header), leaving
+# the index untouched: only --heapallindexed sees the heap tuple without index entry.
+restart() {
+  docker restart "$amcheck" >/dev/null
+  for _ in $(seq 60); do docker exec "$amcheck" pg_isready -q -h 127.0.0.1 && break; sleep 1; done
+}
+apsql "CREATE EXTENSION pageinspect"
+offset=$(apsql "SELECT lp_off + t_hoff FROM heap_page_items(get_raw_page('t', 0)) WHERE lp = 1")
+file=$(apsql "CHECKPOINT; SELECT current_setting('data_directory') || '/' || pg_relation_filepath('t')")
+docker exec "$amcheck" sh -c "printf '\\237\\206\\001\\000' | dd of='$file' bs=1 seek=$offset conv=notrunc status=none"
+restart
+expect 0 "amcheck heap change without heapallindexed" "no corruption found" check-postgres-amcheck -C "$cmd" -d app --heapallindexed=false
+expect 2 "amcheck heap change with heapallindexed" "lacks matching index tuple" check-postgres-amcheck -C "$cmd" -d app
+apsql "REINDEX TABLE t"
+expect 0 "amcheck after reindex" "no corruption found" check-postgres-amcheck -C "$cmd" -d app
+
+# Zeroes the first leaf page of the primary key index, flushed to disk beforehand; the restart drops the cached copy.
+file=$(apsql "CHECKPOINT; SELECT current_setting('data_directory') || '/' || pg_relation_filepath('t_pkey')")
+docker exec "$amcheck" dd if=/dev/zero of="$file" bs=8192 seek=1 count=1 conv=notrunc status=none
+restart
+expect 2 "amcheck corruption" "corruption found in database app" check-postgres-amcheck -C "$cmd" -d app
 
 exit $failures

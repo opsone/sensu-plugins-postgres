@@ -3,7 +3,8 @@
 Sensu Go checks for PostgreSQL:
 
 - `check-postgres-alive`: the server accepts connections and answers a query;
-- `check-postgres-connections`: number of client connections against thresholds, in absolute number or in percentage of the available connections.
+- `check-postgres-connections`: number of client connections against thresholds, in absolute number or in percentage of the available connections;
+- `check-postgres-amcheck`: corruption of a database (tables and B-tree indexes) with `pg_amcheck --heapallindexed`.
 
 Static Go binaries (no CGO, no libpq, no Ruby runtime): one asset for every Linux distribution, `amd64` only.
 
@@ -25,6 +26,15 @@ Static Go binaries (no CGO, no libpq, no Ruby runtime): one asset for every Linu
 | Connections ≥ `--warning` | WARNING |
 | Below thresholds | OK |
 | Connection or query fails, invalid argument (`--warning` above `--critical`…) | UNKNOWN |
+
+`check-postgres-amcheck` runs `sudo -n -u postgres pg_amcheck --database <database> --no-password --heapallindexed` (local Unix socket, `peer` authentication as the `postgres` superuser):
+
+| Situation | State |
+|---|---|
+| pg_amcheck exits 0 | OK |
+| pg_amcheck exits 2: corruption found | CRITICAL, with the first 20 lines of the report |
+| Other failure (sudo refused, `amcheck` extension missing, unknown database, timeout…) | UNKNOWN, with the pg_amcheck error |
+| Invalid argument | UNKNOWN |
 
 The check counts every session only if its role can read all statistics: grant it `pg_monitor` (or `pg_read_all_stats`). A regular role still counts the other sessions, but cannot tell their type: it may overcount by a few internal processes (logical replication launcher, walsenders, parallel workers).
 
@@ -50,6 +60,15 @@ check-postgres-connections [flags]
   -a, --percentage        Thresholds are percentages of the available connections
 ```
 
+```
+check-postgres-amcheck [flags]
+  -d, --database string   Database to check (required)
+  -C, --command string    pg_amcheck executable, e.g. /usr/lib/postgresql/18/bin/pg_amcheck (default "pg_amcheck")
+  -s, --sudo-user string  System user pg_amcheck runs as through sudo -n; empty to run it directly (default "postgres")
+      --heapallindexed    Check that every heap tuple has a matching index entry (--heapallindexed=false to skip) (default true)
+  -T, --timeout int       Timeout of pg_amcheck in seconds (default 3600)
+```
+
 Every option can also be set with an environment variable, which keeps secrets out of the process list:
 
 | Option | Variable |
@@ -63,6 +82,11 @@ Every option can also be set with an environment variable, which keeps secrets o
 | `--warning` | `CHECK_POSTGRES_CONNECTIONS_WARNING` |
 | `--critical` | `CHECK_POSTGRES_CONNECTIONS_CRITICAL` |
 | `--percentage` | `CHECK_POSTGRES_CONNECTIONS_PERCENTAGE` (`true` / `false`) |
+| `check-postgres-amcheck --database` | `CHECK_POSTGRES_AMCHECK_DATABASE` |
+| `--command` | `CHECK_POSTGRES_AMCHECK_COMMAND` |
+| `--sudo-user` | `CHECK_POSTGRES_AMCHECK_SUDO_USER` |
+| `--heapallindexed` | `CHECK_POSTGRES_AMCHECK_HEAPALLINDEXED` (`true` / `false`) |
+| `--timeout` (amcheck) | `CHECK_POSTGRES_AMCHECK_TIMEOUT` |
 
 The libpq environment variables still apply to what these options leave unset: `PGUSER`, `PGPASSWORD`, `PGPASSFILE` (default `~/.pgpass`), `PGSSLMODE` (default `prefer`), `PGSSLROOTCERT`, `PGAPPNAME`… `PGHOST`, `PGPORT` and `PGDATABASE` are overridden by the required options.
 
@@ -71,6 +95,7 @@ Examples:
 ```sh
 check-postgres-alive -H /var/run/postgresql -P 5432 -d postgres -u sensu
 check-postgres-connections -H db.example.com -P 5432 -d postgres -u sensu -a -w 80 -c 90   # password in CHECK_POSTGRES_PASSWORD
+check-postgres-amcheck -d app -C /usr/lib/postgresql/18/bin/pg_amcheck
 ```
 
 ## Check definitions
@@ -94,6 +119,11 @@ annotations:
   postgres_connections_warning: "80"            # optional, default 200
   postgres_connections_critical: "90"           # optional, default 250
   postgres_connections_percentage: "true"       # optional, default false
+  postgres_amcheck_database: app                # required by check-postgres-amcheck
+  postgres_amcheck_command: /usr/lib/postgresql/18/bin/pg_amcheck   # optional, default /usr/lib/postgresql/18/bin/pg_amcheck
+  postgres_amcheck_sudo_user: postgres          # optional, default postgres
+  postgres_amcheck_heapallindexed: "false"      # optional, default true
+  postgres_amcheck_timeout: "7200"              # optional, default 3600 (keep the check timeout above it)
 ```
 
 ### check-postgres-alive
@@ -153,6 +183,69 @@ Over the Unix socket, the agent runs the check as the `sensu` system user: with 
 
 Entity annotations are visible in the Sensu dashboard and API: to keep the password out of them, use Sensu [secrets](https://docs.sensu.io/sensu-go/latest/operations/manage-secrets/secrets/) instead of `env_vars`, or a `~/.pgpass` file for the `sensu` user.
 
+### check-postgres-amcheck
+
+`pg_amcheck` reads every page of the database: run it on a low-traffic schedule (here daily at 3:00), with a Sensu `timeout` above the check's own `--timeout` (3600 s by default), so that the check reports the timeout itself and stops `pg_amcheck` cleanly.
+
+`postgres_amcheck_database` has no default: an entity of the `postgres` subscription without this annotation gets an error event (unmatched token), so subscribe only the servers to check, e.g. with a dedicated `postgres-amcheck` subscription.
+
+```yaml
+---
+type: CheckConfig
+api_version: core/v2
+metadata:
+  name: check-postgres-amcheck
+spec:
+  command: check-postgres-amcheck
+  env_vars:
+    - CHECK_POSTGRES_AMCHECK_DATABASE={{ .annotations.postgres_amcheck_database }}
+    - CHECK_POSTGRES_AMCHECK_COMMAND={{ .annotations.postgres_amcheck_command | default "/usr/lib/postgresql/18/bin/pg_amcheck" }}
+    - CHECK_POSTGRES_AMCHECK_SUDO_USER={{ .annotations.postgres_amcheck_sudo_user | default "postgres" }}
+    - CHECK_POSTGRES_AMCHECK_HEAPALLINDEXED={{ .annotations.postgres_amcheck_heapallindexed | default "true" }}
+    - CHECK_POSTGRES_AMCHECK_TIMEOUT={{ .annotations.postgres_amcheck_timeout | default "3600" }}
+  runtime_assets:
+    - opsone/sensu-plugins-postgres
+  cron: "0 3 * * *"
+  timeout: 7300
+  publish: true
+  subscriptions:
+    - postgres-amcheck
+```
+
+The Sensu `timeout` (7300 s) covers the largest `postgres_amcheck_timeout` set on the subscribed entities (here 7200 s).
+
+Without annotations, for one database on known servers, the options go on the command line:
+
+```yaml
+---
+type: CheckConfig
+api_version: core/v2
+metadata:
+  name: check-postgres-amcheck-app
+spec:
+  command: check-postgres-amcheck -d app -C /usr/lib/postgresql/18/bin/pg_amcheck
+  runtime_assets:
+    - opsone/sensu-plugins-postgres
+  cron: "0 3 * * *"
+  timeout: 3700
+  publish: true
+  subscriptions:
+    - postgres-amcheck
+```
+
+To check several databases of a server, define one check per database (`check-postgres-amcheck-app`, `check-postgres-amcheck-crm`…), with `cron` times spread out so that they do not run together.
+
+Prerequisites on each server:
+
+- the `amcheck` extension in the database checked (shipped with PostgreSQL): `sudo -u postgres psql -d app -c 'CREATE EXTENSION amcheck'`;
+- a sudoers rule letting `sensu` run `pg_amcheck` as `postgres` without password (`sudo -n` fails instead of prompting), e.g. `/etc/sudoers.d/sensu`:
+
+```
+sensu ALL=(postgres) NOPASSWD: /usr/lib/postgresql/18/bin/pg_amcheck
+```
+
+On timeout, the check sends SIGTERM to `sudo`, which relays it to `pg_amcheck`.
+
 ## Migrating from the Ruby version (≤ 0.2.1)
 
 - Commands lose their `.rb` suffix: `check-postgres-alive.rb` → `check-postgres-alive`, `check-postgres-connections.rb` → `check-postgres-connections`.
@@ -173,7 +266,7 @@ Entity annotations are visible in the Sensu dashboard and API: to keep the passw
 
 ```sh
 make test          # go vet + unit tests
-make integration   # runs the checks against real PostgreSQL 18 and 15 servers in Docker
+make integration   # runs the checks against real PostgreSQL 18 and 15 servers in Docker (amcheck on 18)
 ```
 
 Release:
