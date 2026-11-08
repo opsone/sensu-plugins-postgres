@@ -104,7 +104,8 @@ Every option is passed through `env_vars`, filled per host from entity annotatio
 
 Naming rule: an annotation is named after its environment variable, lowercased, without the `CHECK_` prefix (`CHECK_POSTGRES_HOST` → `postgres_host`).
 
-- Optional options use `| default ""`: an empty variable is ignored and the option keeps its default value.
+- Optional options get an explicit, non-empty `default`, matching the plugin default. Never use `| default ""`, nor an annotation set to an empty value: Sensu rejects an empty environment variable (`FOO=`), and the agent then silently drops the check, without any event.
+- `postgres_password` has no default, as no non-empty value means "no password": an entity without it gets an error event (unmatched token). For hosts using `peer` authentication or a `~/.pgpass` file, use a check definition without the `CHECK_POSTGRES_PASSWORD` line.
 - Host, port and database have their default in the check definition (`/var/run/postgresql`, `5432`, `postgres`): set the annotation only to change it.
 
 Annotations, e.g. in the agent configuration (`/etc/sensu/agent.yml`):
@@ -114,14 +115,14 @@ annotations:
   postgres_host: /var/run/postgresql            # optional, default /var/run/postgresql (or db.example.com)
   postgres_port: "5432"                         # optional, default 5432
   postgres_database: postgres                   # optional, default postgres
-  postgres_user: sensu
-  postgres_password: secret
+  postgres_user: sensu                          # optional, default sensu (the system user of the agent)
+  postgres_password: secret                     # required, unless the check definition drops it (peer, ~/.pgpass)
   postgres_connections_warning: "80"            # optional, default 200
   postgres_connections_critical: "90"           # optional, default 250
   postgres_connections_percentage: "true"       # optional, default false
   postgres_amcheck_database: app                # required by check-postgres-amcheck
   postgres_amcheck_command: /usr/lib/postgresql/18/bin/pg_amcheck   # optional, default /usr/lib/postgresql/18/bin/pg_amcheck
-  postgres_amcheck_sudo_user: postgres          # optional, default postgres
+  postgres_amcheck_sudo_user: postgres          # optional, default postgres (never empty: use --sudo-user= in the command to run pg_amcheck directly)
   postgres_amcheck_heapallindexed: "false"      # optional, default true
   postgres_amcheck_timeout: "7200"              # optional, default 3600 (keep the check timeout above it)
 ```
@@ -140,8 +141,8 @@ spec:
     - CHECK_POSTGRES_HOST={{ .annotations.postgres_host | default "/var/run/postgresql" }}
     - CHECK_POSTGRES_PORT={{ .annotations.postgres_port | default "5432" }}
     - CHECK_POSTGRES_DATABASE={{ .annotations.postgres_database | default "postgres" }}
-    - CHECK_POSTGRES_USER={{ .annotations.postgres_user | default "" }}
-    - CHECK_POSTGRES_PASSWORD={{ .annotations.postgres_password | default "" }}
+    - CHECK_POSTGRES_USER={{ .annotations.postgres_user | default "sensu" }}
+    - CHECK_POSTGRES_PASSWORD={{ .annotations.postgres_password }}
   runtime_assets:
     - opsone/sensu-plugins-postgres
   interval: 60
@@ -165,11 +166,11 @@ spec:
     - CHECK_POSTGRES_HOST={{ .annotations.postgres_host | default "/var/run/postgresql" }}
     - CHECK_POSTGRES_PORT={{ .annotations.postgres_port | default "5432" }}
     - CHECK_POSTGRES_DATABASE={{ .annotations.postgres_database | default "postgres" }}
-    - CHECK_POSTGRES_USER={{ .annotations.postgres_user | default "" }}
-    - CHECK_POSTGRES_PASSWORD={{ .annotations.postgres_password | default "" }}
-    - CHECK_POSTGRES_CONNECTIONS_WARNING={{ .annotations.postgres_connections_warning | default "" }}
-    - CHECK_POSTGRES_CONNECTIONS_CRITICAL={{ .annotations.postgres_connections_critical | default "" }}
-    - CHECK_POSTGRES_CONNECTIONS_PERCENTAGE={{ .annotations.postgres_connections_percentage | default "" }}
+    - CHECK_POSTGRES_USER={{ .annotations.postgres_user | default "sensu" }}
+    - CHECK_POSTGRES_PASSWORD={{ .annotations.postgres_password }}
+    - CHECK_POSTGRES_CONNECTIONS_WARNING={{ .annotations.postgres_connections_warning | default "200" }}
+    - CHECK_POSTGRES_CONNECTIONS_CRITICAL={{ .annotations.postgres_connections_critical | default "250" }}
+    - CHECK_POSTGRES_CONNECTIONS_PERCENTAGE={{ .annotations.postgres_connections_percentage | default "false" }}
   runtime_assets:
     - opsone/sensu-plugins-postgres
   interval: 60
